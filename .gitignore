@@ -1,0 +1,13 @@
+# Kernel module build files
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+
+# Kernel build metadata
+Module.symvers
+modules.order
+
+# Editor files
+.vscode/

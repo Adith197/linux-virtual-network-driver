@@ -1,6 +1,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
+#include <linux/etherdevice.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Adithyaa");
@@ -20,6 +21,8 @@ static int vnet_stop(struct net_device *dev){
 
 static int vnet_start_xmit( struct sk_buff *skb,struct net_device *dev){
     pr_info("packet transmitted\n");
+    pr_info("packet length - %d\n",skb->len);
+    pr_info("protocol - 0x%04x\n",ntohs(skb->protocol));//ntosh - network to host short
     dev_kfree_skb(skb);
     return NETDEV_TX_OK;
 }
@@ -36,6 +39,8 @@ static int __init vnet_init(void)
         pr_err("vnet: failed to allocate net device\n");
         return -ENOMEM;
     }
+    unsigned char mac_addr[] = {0x02,0x00,0x00,0x00,0x00,0x01};
+    eth_hw_addr_set(vnet_dev, mac_addr);
     vnet_dev->netdev_ops = &vnet_ops;
     int ret;
     ret = register_netdev(vnet_dev);

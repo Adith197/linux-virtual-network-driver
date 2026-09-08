@@ -2,11 +2,21 @@
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/skbuff.h>
+#include <linux/ip.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Adithyaa");
 MODULE_DESCRIPTION("Virtual Network Driver");
+
 static struct net_device *vnet_dev;
+static struct net_device *vnet1_dev;
+static struct net_device *vnet_peer;
+
+struct vnet_priv{
+    struct net_device *peer;
+};
+
 static int vnet_open(struct net_device *dev){
     pr_info("net device opened\n");
     netif_start_queue(dev);
@@ -20,9 +30,20 @@ static int vnet_stop(struct net_device *dev){
 }
 
 static int vnet_start_xmit( struct sk_buff *skb,struct net_device *dev){
+    struct vnet_priv *priv;
+    struct net_device *peer;
     pr_info("packet transmitted\n");
-    pr_info("packet length - %d\n",skb->len);
+    pr_info("packet length - %u\n",skb->len);
     pr_info("protocol - 0x%04x\n",ntohs(skb->protocol));//ntosh - network to host short
+    priv = netdev_priv(dev);
+    peer = priv->peer;
+    if(!peer){
+        pr_err("vnet: peer device not set\n");
+        dev_kfree_skb(skb);
+        return NETDEV_TX_OK;
+    }
+    skb->dev = peer;
+    netif_rx(skb);
     dev_kfree_skb(skb);
     return NETDEV_TX_OK;
 }
@@ -34,21 +55,36 @@ static const struct net_device_ops vnet_ops = {
 static int __init vnet_init(void)
 {
     pr_info("vnet: module inserted\n");
-    vnet_dev =alloc_netdev(0,"vnet%d",NET_NAME_UNKNOWN,ether_setup);
+    vnet_dev =alloc_netdev(sizeof(struct vnet_priv),"vnet%d",NET_NAME_UNKNOWN,ether_setup);
+    vnet1_dev =alloc_netdev(sizeof(struct vnet_priv),"vnet%d",NET_NAME_UNKNOWN,ether_setup);
     if(!vnet_dev){
         pr_err("vnet: failed to allocate net device\n");
         return -ENOMEM;
     }
+    if(!vnet1_dev){
+        pr_err("vnet1: failed to allocate net device\n");
+        return -ENOMEM;
+    }
     unsigned char mac_addr[] = {0x02,0x00,0x00,0x00,0x00,0x01};
     eth_hw_addr_set(vnet_dev, mac_addr);
+    unsigned char mac_addr1[] = {0x02,0x00,0x00,0x00,0x00,0x02};
+    eth_hw_addr_set(vnet1_dev,mac_addr1);
     vnet_dev->netdev_ops = &vnet_ops;
-    int ret;
+    vnet1_dev->netdev_ops=&vnet_ops;
+    int ret,ret1;
     ret = register_netdev(vnet_dev);
+    ret1=register_netdev(vnet1_dev);
     if(ret){
-        pr_err("vnet: failed to regiister net device\n");
+        pr_err("vnet: failed to register tx net device\n");
         free_netdev(vnet_dev);
         vnet_dev = NULL;
         return ret;
+    }
+    if(ret1){
+        pr_err("vnet1: failed to register rx net device\n");
+        free_netdev(vnet1_dev);
+        vnet1_dev = NULL;
+        return ret1;
     }
     pr_info("vnet: device registered\n");
     return 0;
@@ -61,7 +97,13 @@ static void __exit vnet_exit(void)
         free_netdev(vnet_dev);
         vnet_dev = NULL;
     }
+    if (vnet1_dev){
+        unregister_netdev(vnet1_dev);
+        free_netdev(vnet1_dev);
+        vnet1_dev=NULL;
+    }
     pr_info("vnet: module removed from kernel\n");
+    pr_info("vnet1: module removed from kernel\n");
 }
 
 module_init(vnet_init);

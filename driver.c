@@ -3,7 +3,6 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
-#include <linux/ip.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Adithyaa");
@@ -11,7 +10,6 @@ MODULE_DESCRIPTION("Virtual Network Driver");
 
 static struct net_device *vnet_dev;
 static struct net_device *vnet1_dev;
-static struct net_device *vnet_peer;
 
 struct vnet_priv{
     struct net_device *peer;
@@ -29,7 +27,7 @@ static int vnet_stop(struct net_device *dev){
     return 0;
 }
 
-static int vnet_start_xmit( struct sk_buff *skb,struct net_device *dev){
+static netdev_tx_t vnet_start_xmit( struct sk_buff *skb,struct net_device *dev){
     struct vnet_priv *priv;
     struct net_device *peer;
     pr_info("packet transmitted\n");
@@ -42,9 +40,13 @@ static int vnet_start_xmit( struct sk_buff *skb,struct net_device *dev){
         dev_kfree_skb(skb);
         return NETDEV_TX_OK;
     }
-    skb->dev = peer;
-    netif_rx(skb);
-    dev_kfree_skb(skb);
+    pr_info("vnet: delivered packet to peer device\n");
+    pr_info("vnet: peer device name - %s\n",peer->name);
+    int ret;
+    ret = dev_forward_skb(peer, skb);
+    if(ret == NET_RX_DROP){
+        pr_err("vnet: failed to forward packet to peer device\n");
+    }
     return NETDEV_TX_OK;
 }
 static const struct net_device_ops vnet_ops = {
@@ -63,6 +65,8 @@ static int __init vnet_init(void)
     }
     if(!vnet1_dev){
         pr_err("vnet1: failed to allocate net device\n");
+        free_netdev(vnet_dev);
+        vnet_dev = NULL;
         return -ENOMEM;
     }
     unsigned char mac_addr[] = {0x02,0x00,0x00,0x00,0x00,0x01};
@@ -71,6 +75,12 @@ static int __init vnet_init(void)
     eth_hw_addr_set(vnet1_dev,mac_addr1);
     vnet_dev->netdev_ops = &vnet_ops;
     vnet1_dev->netdev_ops=&vnet_ops;
+    struct vnet_priv *priv0;
+    struct vnet_priv *priv1;
+    priv0=netdev_priv(vnet_dev);
+    priv1=netdev_priv(vnet1_dev);
+    priv0->peer=vnet1_dev;
+    priv1->peer=vnet_dev;
     int ret,ret1;
     ret = register_netdev(vnet_dev);
     ret1=register_netdev(vnet1_dev);
@@ -78,12 +88,16 @@ static int __init vnet_init(void)
         pr_err("vnet: failed to register tx net device\n");
         free_netdev(vnet_dev);
         vnet_dev = NULL;
+        free_netdev(vnet1_dev);
+        vnet1_dev=NULL;
         return ret;
     }
     if(ret1){
         pr_err("vnet1: failed to register rx net device\n");
         free_netdev(vnet1_dev);
         vnet1_dev = NULL;
+        free_netdev(vnet_dev);
+        vnet_dev=NULL;
         return ret1;
     }
     pr_info("vnet: device registered\n");

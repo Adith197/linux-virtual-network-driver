@@ -1,0 +1,21 @@
+sudo ip netns add ns1
+sudo ip link set vnet1 netns ns1
+
+sudo ip addr add 10.10.0.1/24 dev vnet0
+sudo ip link set vnet0 up
+
+sudo ip netns exec ns1 ip addr add 10.10.0.2/24 dev vnet1
+sudo ip netns exec ns1 ip link set vnet1 up
+
+ip route
+sudo ip netns exec ns1 ip route
+
+ip route get 10.10.0.2
+
+ip -s link show vnet0
+sudo ip netns exec ns1 ip -s link show vnet1
+
+sudo dmesg -C
+
+ping -c 1 10.10.0.2
+
